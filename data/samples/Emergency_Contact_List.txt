@@ -1,0 +1,71 @@
+EMERGENCY CONTACT LIST - MANUFACTURING OPERATIONS
+=================================================
+
+*** KEEP THIS LIST ACCESSIBLE AT ALL TIMES ***
+
+IMMEDIATE EMERGENCIES:
+======================
+Plant Emergency Services (Fire, Medical, Spill): Extension 5555
+                                                  Direct: (555) 123-5555
+
+SAFETY & OPERATIONS:
+===================
+Safety Officer - John Martinez
+  Office: Extension 5557
+  Mobile: (555) 123-5557
+  Email: j.martinez@company.com
+
+Maintenance Supervisor - Sarah Chen
+  Office: Extension 5556
+  Mobile: (555) 123-5556
+  On-call 24/7
+  Email: s.chen@company.com
+
+Operations Manager - Michael Johnson
+  Office: Extension 5558
+  Mobile: (555) 123-5558
+  Email: m.johnson@company.com
+
+Plant Manager - David Williams
+  Office: Extension 5550
+  Mobile: (555) 123-5550
+  Email: d.williams@company.com
+
+TECHNICAL SUPPORT:
+==================
+Pump Vendor (24/7 Hotline): 1-800-PUMP-911
+Electrical Contractor: (555) 234-5678
+Hydraulic Systems Tech: (555) 345-6789
+
+UTILITIES:
+==========
+Electric Company Emergency: 1-800-POWER-00
+Gas Company Emergency: 1-800-GAS-LEAK
+Water/Sewer: (555) 456-7890
+
+AFTER-HOURS ESCALATION:
+=======================
+1. Call Maintenance Supervisor (always available)
+2. If no answer within 5 min, call Operations Manager
+3. For life-safety emergency, call 5555 immediately - don't wait!
+
+REPORTING NON-EMERGENCIES:
+==========================
+Equipment Issues: Submit work order via CMMS or call Extension 5556
+Safety Concerns: Call Extension 5557 or submit via safety portal
+Environmental Concerns: Call Extension 5559
+
+EXTERNAL EMERGENCY SERVICES:
+============================
+911 - Fire, Police, Medical (if plant services unavailable)
+Poison Control: 1-800-222-1222
+Hospital - County General: (555) 789-0123
+
+IMPORTANT NOTES:
+- All emergency numbers are also posted at each control panel
+- Keep this list with you on the plant floor
+- Update your supervisor if any number is incorrect
+- In doubt, call 5555 - they will direct you to the right resource
+
+Last Updated: January 1, 2026
+Next Review: July 1, 2026

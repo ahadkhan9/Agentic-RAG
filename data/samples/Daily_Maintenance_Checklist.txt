@@ -1,0 +1,56 @@
+DAILY PUMP MAINTENANCE CHECKLIST
+================================
+
+Date: _______________  Operator: _______________  Shift: _______________
+
+Instructions: Complete this checklist at the start of each shift. 
+Mark: ✓ for OK, X for problem found, N/A if not applicable
+
+PUMP P-100:
+[ ] Visual inspection - no leaks
+[ ] Pressure gauge reading: _____ PSI (normal: 100-120)
+[ ] Unusual vibration or noise
+[ ] Bearing temperature (touch test - should not be too hot)
+[ ] Seal area - no excessive leakage
+[ ] Coupling guard in place
+[ ] Foundation bolts tight
+Notes: ________________________________________________________________
+
+PUMP P-101:
+[ ] Visual inspection - no leaks
+[ ] Pressure gauge reading: _____ PSI (normal: 100-120)
+[ ] Unusual vibration or noise
+[ ] Bearing temperature (touch test)
+[ ] Seal area - no excessive leakage
+[ ] Coupling guard in place
+[ ] Foundation bolts tight
+Notes: ________________________________________________________________
+
+PUMP P-102:
+[ ] Visual inspection - no leaks
+[ ] Pressure gauge reading: _____ PSI (normal: 100-120)
+[ ] Unusual vibration or noise
+[ ] Bearing temperature (touch test)
+[ ] Seal area - no excessive leakage
+[ ] Coupling guard in place
+[ ] Foundation bolts tight
+Notes: ________________________________________________________________
+
+GENERAL PUMP ROOM:
+[ ] Oil level in hydraulic reservoir
+[ ] No trip hazards or spills
+[ ] Fire extinguisher accessible and charged
+[ ] Emergency stop buttons functional
+[ ] Adequate lighting
+[ ] Ventilation system operating
+
+ACTIONS TAKEN (if any issues found):
+_______________________________________________________________________
+_______________________________________________________________________
+_______________________________________________________________________
+
+SUPERVISOR NOTIFIED:  [ ] Yes  [ ] No  [ ] N/A
+
+Operator Signature: _______________________  Time: _______
+
+Supervisor Sign-off: ______________________  Time: _______
