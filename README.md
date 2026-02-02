@@ -16,7 +16,7 @@ An intelligent document Q&A system built for manufacturing environments. Upload 
 |-----------|------------|
 | Vector DB | Milvus Lite (file-based, no Docker needed) |
 | Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
-| LLM | Ollama (llama3.2) / Gemini API |
+| LLM | Ollama (qwen3:8b) / Gemini API |
 | Backend | FastAPI |
 | UI | Streamlit |
 
