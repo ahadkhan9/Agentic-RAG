@@ -129,6 +129,7 @@ class MilvusClient:
         results = self._client.search(
             collection_name=self.collection_name,
             data=[query_embedding],
+            filter=filter_expr or "",
             limit=top_k,
             output_fields=["content", "source_file", "file_type", "page_number", "section"]
         )
