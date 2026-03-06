@@ -11,7 +11,7 @@ aiofiles>=23.0.0
 google-genai>=1.0.0
 
 # Vector Database (embedded, file-based)
-pymilvus>=2.4.0
+pymilvus[milvus_lite]>=2.4.0
 
 # Document Processing
 PyMuPDF>=1.24.0
