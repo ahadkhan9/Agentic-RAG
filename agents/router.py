@@ -3,45 +3,26 @@ Router Agent
 
 Classifies user intent and routes queries to appropriate handlers.
 Supports query decomposition for complex multi-part questions.
+Gemini-only — uses shared utils for LLM calls.
 """
 import json
-import time
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional
 
 from config import config
 from logger import get_logger
+from utils import call_gemini
 
-# Initialize logger
 logger = get_logger("Router")
-
-
-def call_with_retry(func, max_retries=3, base_delay=1.0):
-    """Call a function with exponential backoff retry for 503 errors."""
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except Exception as e:
-            last_error = e
-            error_str = str(e).lower()
-            # Retry on 503, 429 (rate limit), or temporary errors
-            if '503' in error_str or '429' in error_str or 'temporarily' in error_str or 'overloaded' in error_str:
-                delay = base_delay * (2 ** attempt)  # 1, 2, 4 seconds
-                logger.warning(f"⚠️ API error (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
-                time.sleep(delay)
-            else:
-                raise  # Non-retryable error
-    raise last_error  # All retries exhausted
 
 
 class QueryIntent(str, Enum):
     """Types of user query intents."""
-    RETRIEVAL = "retrieval"      # Needs document search
-    DIRECT = "direct"            # Can answer without documents
-    MULTI_PART = "multi_part"    # Complex query needing decomposition
-    CLARIFY = "clarify"          # Query is unclear
+    RETRIEVAL = "retrieval"
+    DIRECT = "direct"
+    MULTI_PART = "multi_part"
+    CLARIFY = "clarify"
 
 
 @dataclass
@@ -52,27 +33,9 @@ class RoutingResult:
     reasoning: str
 
 
-def get_llm_client():
-    """Get the LLM client based on configuration.
-    
-    Uses google.genai (the SDK pattern from Google ADK) instead of
-    the older google.generativeai module.
-    """
-    if config.llm_provider == "ollama":
-        from ollama import Client
-        return Client(), "ollama"
-    else:
-        # Use google.genai Client (same as ADK uses internally)
-        from google import genai
-        
-        client = genai.Client(api_key=config.google_api_key)
-        return client, "genai"
+def classify_intent(query: str, api_key: Optional[str] = None) -> RoutingResult:
+    """Classify the user's query intent using Gemini.
 
-
-def classify_intent(query: str) -> RoutingResult:
-    """
-    Classify the user's query intent.
-    
     Uses LLM to determine:
     - If retrieval is needed
     - If query should be decomposed
@@ -100,52 +63,33 @@ Respond in this exact JSON format:
 Only include sub_queries if intent is "multi_part". Otherwise, use empty list.
 """
 
-    client, client_type = get_llm_client()
-    
-    if client_type == "ollama":
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        result_text = response['message']['content']
-    else:
-        # Use google.genai Client API with retry for 503 errors
-        def make_call():
-            return client.models.generate_content(
-                model=config.gemini_model,
-                contents=prompt
-            )
-        response = call_with_retry(make_call)
-        result_text = response.text
-    
+    result_text = call_gemini(prompt, api_key=api_key)
+
     # Parse JSON response
     try:
-        # Extract JSON from response (handle markdown code blocks)
         if "```json" in result_text:
             result_text = result_text.split("```json")[1].split("```")[0]
         elif "```" in result_text:
             result_text = result_text.split("```")[1].split("```")[0]
-        
+
         result = json.loads(result_text.strip())
-        
+
         return RoutingResult(
             intent=QueryIntent(result.get("intent", "retrieval")),
             sub_queries=result.get("sub_queries", []),
-            reasoning=result.get("reasoning", "")
+            reasoning=result.get("reasoning", ""),
         )
     except (json.JSONDecodeError, KeyError, ValueError):
-        # Default to retrieval if parsing fails
         return RoutingResult(
             intent=QueryIntent.RETRIEVAL,
             sub_queries=[],
-            reasoning="Defaulting to retrieval mode"
+            reasoning="Defaulting to retrieval mode",
         )
 
 
-def decompose_query(query: str) -> list[str]:
-    """
-    Decompose a complex query into simpler sub-queries.
-    
+def decompose_query(query: str, api_key: Optional[str] = None) -> list[str]:
+    """Decompose a complex query into simpler sub-queries.
+
     Example:
         "What's the maintenance procedure for Pump A and when is it due?"
         -> ["What is the maintenance procedure for Pump A?",
@@ -165,56 +109,37 @@ Respond with a JSON array of sub-questions only:
 ["sub-question 1", "sub-question 2", ...]
 """
 
-    client, client_type = get_llm_client()
-    
-    if client_type == "ollama":
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        result_text = response['message']['content']
-    else:
-        # Use google.genai Client API with retry for 503 errors
-        def make_call():
-            return client.models.generate_content(
-                model=config.gemini_model,
-                contents=prompt
-            )
-        response = call_with_retry(make_call)
-        result_text = response.text
-    
+    result_text = call_gemini(prompt, api_key=api_key)
+
     try:
-        # Extract JSON array
         if "[" in result_text:
             start = result_text.index("[")
             end = result_text.rindex("]") + 1
             result_text = result_text[start:end]
-        
+
         sub_queries = json.loads(result_text)
         return sub_queries if sub_queries else [query]
     except (json.JSONDecodeError, ValueError):
         return [query]
 
 
-def route_query(query: str) -> tuple[QueryIntent, list[str]]:
-    """
-    Route a query based on its intent.
-    
+def route_query(
+    query: str, api_key: Optional[str] = None
+) -> tuple[QueryIntent, list[str]]:
+    """Route a query based on its intent.
+
     Returns:
         Tuple of (intent, queries_to_process)
-        - For simple queries: ([original_query])
-        - For multi-part: list of sub-queries
     """
     logger.debug(f"Routing query: '{query[:50]}...'")
-    routing = classify_intent(query)
+    routing = classify_intent(query, api_key=api_key)
     logger.info(f"🎯 Classified as: {routing.intent.name} | Reason: {routing.reasoning}")
-    
+
     if routing.intent == QueryIntent.MULTI_PART:
-        # Use sub_queries from classification, or decompose
-        queries = routing.sub_queries if routing.sub_queries else decompose_query(query)
+        queries = routing.sub_queries if routing.sub_queries else decompose_query(query, api_key=api_key)
         logger.info(f"📋 Decomposed into {len(queries)} sub-queries")
         for i, q in enumerate(queries, 1):
             logger.debug(f"  [{i}] {q}")
         return routing.intent, queries
-    
+
     return routing.intent, [query]

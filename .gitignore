@@ -23,8 +23,12 @@ Thumbs.db
 data/uploads/*
 !data/uploads/.gitkeep
 *.log
+logs/
 
 # Milvus Lite database (file-based vector store)
 milvus_data.db
 milvus_data.db.lock
 *.milvus_data.db.lock
+
+# Docker
+.dockerignore

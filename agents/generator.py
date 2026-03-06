@@ -1,36 +1,17 @@
 """
 Generator Agent
 
-Generates responses using LLM with retrieved context.
+Generates responses using Gemini with retrieved context.
 Enforces citation of sources in responses.
 """
-import time
 from dataclasses import dataclass
 from typing import Optional
 
-from config import config
 from agents.retriever import Citation, format_citations
 from logger import get_logger
+from utils import call_gemini
 
 logger = get_logger("Generator")
-
-
-def call_with_retry(func, max_retries=3, base_delay=1.0):
-    """Call a function with exponential backoff retry for 503 errors."""
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except Exception as e:
-            last_error = e
-            error_str = str(e).lower()
-            if '503' in error_str or '429' in error_str or 'temporarily' in error_str or 'overloaded' in error_str:
-                delay = base_delay * (2 ** attempt)
-                logger.warning(f"⚠️ API error (attempt {attempt + 1}/{max_retries}), retrying in {delay}s...")
-                time.sleep(delay)
-            else:
-                raise
-    raise last_error
 
 
 @dataclass
@@ -41,43 +22,27 @@ class GeneratedResponse:
     full_response: str  # Answer + formatted citations
 
 
-def get_llm_client():
-    """Get the LLM client based on configuration.
-    
-    Uses google.genai (the SDK pattern from Google ADK) instead of 
-    the older google.generativeai module.
-    """
-    if config.llm_provider == "ollama":
-        from ollama import Client
-        return Client(), "ollama"
-    else:
-        # Use google.genai Client (same as ADK uses internally)
-        from google import genai
-        
-        client = genai.Client(api_key=config.google_api_key)
-        return client, "genai"
-
-
 def generate_response(
     query: str,
     context: str,
     citations: list[Citation],
-    system_prompt: Optional[str] = None
+    system_prompt: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> GeneratedResponse:
-    """
-    Generate a response using LLM with retrieved context.
-    
+    """Generate a response using Gemini with retrieved context.
+
     Args:
         query: The user's question
         context: Retrieved document context
         citations: List of citations for the context
         system_prompt: Optional custom system prompt
-    
+        api_key: Optional per-session Gemini API key
+
     Returns:
         GeneratedResponse with answer and citations
     """
     if system_prompt is None:
-        system_prompt = """You are a helpful manufacturing knowledge assistant. 
+        system_prompt = """You are a helpful manufacturing knowledge assistant.
 Your role is to answer questions accurately based on the provided context from company documents.
 
 IMPORTANT RULES:
@@ -97,74 +62,43 @@ USER QUESTION: {query}
 
 Provide a helpful answer based on the context above. Reference sources when appropriate."""
 
-    client, client_type = get_llm_client()
-    
-    if client_type == "ollama":
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[{"role": "user", "content": full_prompt}]
-        )
-        answer = response['message']['content']
-    else:
-        # Use google.genai Client API with retry for 503 errors
-        def make_call():
-            return client.models.generate_content(
-                model=config.gemini_model,
-                contents=full_prompt
-            )
-        response = call_with_retry(make_call)
-        answer = response.text
-    
-    # Format full response with citations
+    answer = call_gemini(full_prompt, api_key=api_key)
+
     formatted_citations = format_citations(citations)
     full_response = answer + formatted_citations
-    
+
     return GeneratedResponse(
         answer=answer,
         citations=citations,
-        full_response=full_response
+        full_response=full_response,
     )
 
 
-def generate_direct_response(query: str) -> GeneratedResponse:
-    """
-    Generate a response without document context.
-    Used for queries that don't need retrieval.
+def generate_direct_response(
+    query: str, api_key: Optional[str] = None
+) -> GeneratedResponse:
+    """Generate a response without document context.
+
+    Used for queries that don't need retrieval (greetings, meta-questions).
     """
     prompt = f"""You are a helpful assistant. Answer this question concisely.
-If this is a question that requires specific knowledge from documents, 
+If this is a question that requires specific knowledge from documents,
 indicate that you would need to search the document database.
 
 Question: {query}"""
 
-    client, client_type = get_llm_client()
-    
-    if client_type == "ollama":
-        response = client.chat(
-            model=config.ollama_model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        answer = response['message']['content']
-    else:
-        # Use google.genai Client API with retry for 503 errors
-        def make_call():
-            return client.models.generate_content(
-                model=config.gemini_model,
-                contents=prompt
-            )
-        response = call_with_retry(make_call)
-        answer = response.text
-    
+    answer = call_gemini(prompt, api_key=api_key)
+
     return GeneratedResponse(
         answer=answer,
         citations=[],
-        full_response=answer
+        full_response=answer,
     )
 
 
 def generate_clarification_request(query: str) -> str:
     """Generate a request for clarification when query is unclear."""
-    return f"""I'd be happy to help, but I need a bit more information to give you an accurate answer.
+    return """I'd be happy to help, but I need a bit more information to give you an accurate answer.
 
 Could you please clarify:
 - Which specific equipment or process are you asking about?

@@ -1,43 +1,41 @@
 """
 Agentic RAG System Configuration
 
-All values MUST be set in .env file - no fallback defaults.
+Gemini-only configuration for optimized 2GB droplet deployment.
+API key can come from .env (server default) or per-session (user-provided).
 """
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def require_env(key: str) -> str:
-    """Get required environment variable or raise error."""
-    value = os.getenv(key)
-    if value is None:
-        raise ValueError(f"Required environment variable '{key}' is not set. Check your .env file.")
-    return value
-
-
 @dataclass
 class Config:
-    """Application configuration - all values from .env"""
-    
+    """Application configuration — Gemini-only deployment."""
+
     # Milvus Lite (file-based, no server needed)
     collection_name: str = os.getenv("COLLECTION_NAME", "manufacturing_docs")
-    
-    # LLM - Required, no defaults
-    llm_provider: str = require_env("LLM_PROVIDER")
-    ollama_model: str = require_env("OLLAMA_MODEL")
-    gemini_model: str = require_env("GEMINI_MODEL")
-    google_api_key: str = require_env("GOOGLE_API_KEY")
-    
-    # Embeddings
-    embedding_model: str = require_env("EMBEDDING_MODEL")
-    embedding_dim: int = 384  # all-MiniLM-L6-v2 dimension
-    
+
+    # Gemini LLM
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+
+    # Gemini Embeddings
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
+    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "768"))
+
     # Chunking
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "512"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "50"))
+
+    # Server-level API key (optional — users can provide their own)
+    google_api_key: str = os.getenv("GOOGLE_API_KEY", "")
+
+    # Security
+    max_upload_size_mb: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "20"))
+    allowed_origins: list[str] = field(default_factory=lambda: os.getenv(
+        "ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else ["*"])
 
 
 config = Config()
