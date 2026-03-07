@@ -2,11 +2,11 @@
 Streamlit UI — Knowledge Assistant
 
 Features:
-- Landing page with Gemini API key input
+- Clean, professional design (no emoji clutter)
+- Streaming responses via st.write_stream
 - Document upload with summary generation
-- Chat-based Q&A with 6 intent types
-- Session timeout and metrics tracking
-- Per-session API key (never stored server-side)
+- Session metrics panel
+- Session timeout
 """
 import time
 import streamlit as st
@@ -15,7 +15,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agents.orchestrator import process_query, ingest_document
+from agents.orchestrator import process_query_stream, ingest_document
+from agents.generator import format_citations
 from vectordb.milvus_client import get_milvus_client, reset_milvus_client
 from vectordb.doc_registry import list_documents as list_registered_docs, clear_registry
 from metrics import SessionMetrics
@@ -25,35 +26,141 @@ from config import config
 # Page config
 st.set_page_config(
     page_title="Knowledge Assistant",
-    page_icon="🧠",
+    page_icon="K",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 
+# ---------------------------------------------------------------------------
+# Custom CSS — minimal, professional, dark-friendly
+# ---------------------------------------------------------------------------
+
+st.markdown("""
+<style>
+    /* Clean header typography */
+    .main-header {
+        font-size: 1.6rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.25rem;
+    }
+    .sub-header {
+        font-size: 0.95rem;
+        opacity: 0.6;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Intent badge */
+    .intent-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+    }
+    .intent-retrieval { background: #1a3a4a; color: #5bb8d4; }
+    .intent-summary { background: #2a3a1a; color: #8bc34a; }
+    .intent-comparison { background: #3a2a1a; color: #ffb74d; }
+    .intent-synthesis { background: #2a1a3a; color: #ce93d8; }
+    .intent-direct { background: #1a2a3a; color: #90caf9; }
+    .intent-clarify { background: #3a3a1a; color: #fff176; }
+
+    /* Metric cards */
+    .metric-row {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+    .metric-card {
+        flex: 1;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 8px;
+        padding: 0.6rem 0.75rem;
+        text-align: center;
+    }
+    .metric-value {
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+    .metric-label {
+        font-size: 0.7rem;
+        opacity: 0.5;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    /* Doc card */
+    .doc-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+    }
+    .doc-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 0.25rem;
+    }
+    .doc-meta {
+        font-size: 0.75rem;
+        opacity: 0.5;
+    }
+
+    /* Security note on landing */
+    .security-note {
+        font-size: 0.8rem;
+        opacity: 0.5;
+        margin-top: 1rem;
+        text-align: center;
+        line-height: 1.6;
+    }
+
+    /* Remove streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* Clean sidebar */
+    section[data-testid="stSidebar"] {
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    section[data-testid="stSidebar"] .stMarkdown h3 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.5;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
 def init_session_state():
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "documents_loaded" not in st.session_state:
-        st.session_state.documents_loaded = False
-    if "api_key" not in st.session_state:
-        st.session_state.api_key = ""
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if "metrics" not in st.session_state:
-        st.session_state.metrics = SessionMetrics()
-    if "session_start" not in st.session_state:
-        st.session_state.session_start = time.time()
-    if "last_activity" not in st.session_state:
-        st.session_state.last_activity = time.time()
+    defaults = {
+        "messages": [],
+        "documents_loaded": False,
+        "api_key": "",
+        "authenticated": False,
+        "metrics": SessionMetrics(),
+        "session_start": time.time(),
+        "last_activity": time.time(),
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 
 def check_session_timeout():
-    """Check if session has timed out. Returns True if expired."""
     if not st.session_state.authenticated:
         return False
-    elapsed_minutes = (time.time() - st.session_state.last_activity) / 60
-    if elapsed_minutes > config.session_timeout_minutes:
+    elapsed = (time.time() - st.session_state.last_activity) / 60
+    if elapsed > config.session_timeout_minutes:
         st.session_state.authenticated = False
         st.session_state.api_key = ""
         st.session_state.messages = []
@@ -63,43 +170,30 @@ def check_session_timeout():
 
 
 def touch_activity():
-    """Update last activity timestamp."""
     st.session_state.last_activity = time.time()
 
 
-def render_landing_page():
-    """Render the API key entry landing page."""
-    st.markdown(
-        """
-        <style>
-        .security-note {
-            font-size: 0.85rem;
-            color: #6c757d;
-            margin-top: 1rem;
-            text-align: center;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+# ---------------------------------------------------------------------------
+# Landing Page
+# ---------------------------------------------------------------------------
 
+def render_landing_page():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        st.markdown("## 🧠 Knowledge Assistant")
-        st.markdown("*Document Q&A powered by Gemini*")
+        st.markdown('<div class="main-header">Knowledge Assistant</div>', unsafe_allow_html=True)
+        st.markdown('<div class="sub-header">Document Q&A — powered by Gemini</div>', unsafe_allow_html=True)
 
         st.divider()
 
-        st.markdown("### Enter your Gemini API Key")
+        st.markdown("#### Enter your Gemini API Key")
         st.caption(
-            "Your API key is used only in-memory for this session. "
-            "It is never stored on the server or logged."
+            "Your key stays in memory for this session only. "
+            "Never stored on the server."
         )
 
         api_key_input = st.text_input(
-            "Gemini API Key",
-            type="password",
+            "Gemini API Key", type="password",
             placeholder="AIza...",
             help="Get your key at https://aistudio.google.com/apikey",
             label_visibility="collapsed",
@@ -109,10 +203,7 @@ def render_landing_page():
             if not api_key_input:
                 st.error("Please enter your Gemini API key.")
             elif not validate_api_key(api_key_input):
-                st.error(
-                    "Invalid API key format. Gemini keys start with 'AIza' "
-                    "and are 39 characters long."
-                )
+                st.error("Invalid key format. Gemini keys start with 'AIza' and are 39 characters.")
             else:
                 st.session_state.api_key = api_key_input
                 st.session_state.authenticated = True
@@ -124,40 +215,35 @@ def render_landing_page():
         st.divider()
 
         st.markdown(
-            """
-            <div class="security-note">
-            🔒 <strong>Security:</strong> Your API key stays in your browser session memory only.<br/>
-            It is not stored in any database, file, or log on the server.<br/>
-            The session ends when you close this tab.
-            </div>
-            """,
+            '<div class="security-note">'
+            'Your API key stays in browser session memory only.<br/>'
+            'Not stored in any database, file, or log.<br/>'
+            'Session ends when you close this tab.'
+            '</div>',
             unsafe_allow_html=True,
         )
 
         with st.expander("How to get a Gemini API key"):
             st.markdown(
-                """
-                1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
-                2. Sign in with your Google account
-                3. Click **Create API key**
-                4. Copy the key and paste it above
-                
-                The free tier includes generous usage limits.
-                """
+                "1. Go to [Google AI Studio](https://aistudio.google.com/apikey)\n"
+                "2. Sign in with your Google account\n"
+                "3. Click **Create API key**\n"
+                "4. Copy and paste above"
             )
 
 
+# ---------------------------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------------------------
+
 def render_sidebar():
-    """Render the sidebar with documents, metrics, and actions."""
     with st.sidebar:
-        st.header("🧠 Knowledge Assistant")
-        st.caption("Document AI")
+        st.markdown('<div class="main-header">Knowledge Assistant</div>', unsafe_allow_html=True)
 
-        # Session info
-        session_minutes = int((time.time() - st.session_state.session_start) / 60)
-        st.caption(f"⏱️ Session: {session_minutes}m")
+        session_min = int((time.time() - st.session_state.session_start) / 60)
+        st.caption(f"Session: {session_min}m")
 
-        if st.button("🔑 Change API Key", use_container_width=True):
+        if st.button("Change API Key", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.api_key = ""
             st.session_state.messages = []
@@ -167,21 +253,18 @@ def render_sidebar():
         st.divider()
 
         # Upload
-        st.subheader("📄 Upload Documents")
+        st.markdown("### Upload")
         uploaded_file = st.file_uploader(
-            "Choose a file",
-            type=["pdf", "docx", "xlsx", "pptx", "txt"],
+            "Choose a file", type=["pdf", "docx", "xlsx", "pptx", "txt"],
+            label_visibility="collapsed",
         )
 
         if uploaded_file:
             file_size_mb = uploaded_file.size / (1024 * 1024)
             if file_size_mb > config.max_upload_size_mb:
-                st.error(
-                    f"File too large ({file_size_mb:.1f} MB). "
-                    f"Max: {config.max_upload_size_mb} MB"
-                )
+                st.error(f"File too large ({file_size_mb:.1f} MB). Max: {config.max_upload_size_mb} MB")
             else:
-                with st.spinner("Processing & generating summary..."):
+                with st.spinner("Processing..."):
                     temp_path = Path("data/uploads") / uploaded_file.name
                     temp_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(temp_path, "wb") as f:
@@ -192,9 +275,9 @@ def render_sidebar():
                             api_key=st.session_state.api_key,
                             metrics=st.session_state.metrics,
                         )
-                        st.success(f"✅ Indexed {stats['chunks_inserted']} chunks")
+                        st.success(f"Indexed {stats['chunks_inserted']} chunks")
                         if stats.get("summary"):
-                            st.info(f"📝 **Summary:** {stats['summary'][:200]}...")
+                            st.info(stats['summary'][:200])
                         st.session_state.documents_loaded = True
                         touch_activity()
                     except Exception as e:
@@ -202,44 +285,46 @@ def render_sidebar():
 
         st.divider()
 
-        # Registered documents
-        st.subheader("📚 Documents")
+        # Documents
+        st.markdown("### Documents")
         docs = list_registered_docs()
         if docs:
             for doc in docs:
-                with st.expander(f"📄 {doc.filename}"):
-                    st.write(f"**Summary:** {doc.summary}")
-                    st.caption(f"Topics: {doc.topics}")
-                    st.caption(f"Chunks: {doc.chunk_count} | Chars: {doc.total_chars:,}")
+                st.markdown(
+                    f'<div class="doc-card">'
+                    f'<div class="doc-name">{doc.filename}</div>'
+                    f'<div style="font-size:0.8rem;opacity:0.7;margin-bottom:4px">{doc.summary[:120]}...</div>'
+                    f'<div class="doc-meta">{doc.chunk_count} chunks · {doc.total_chars:,} chars</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
         else:
-            st.info("No documents uploaded yet")
+            st.caption("No documents uploaded yet.")
 
         st.divider()
 
-        # Metrics panel
-        st.subheader("📊 Session Metrics")
-        m = st.session_state.metrics
-        summary = m.get_summary()
+        # Metrics
+        st.markdown("### Metrics")
+        m = st.session_state.metrics.get_summary()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Queries", summary["queries"])
-            st.metric("LLM Calls", summary["llm_calls"])
-        with col2:
-            st.metric("Docs", summary["docs_uploaded"])
-            st.metric("Embed Calls", summary["embed_calls"])
+        st.markdown(
+            f'<div class="metric-row">'
+            f'<div class="metric-card"><div class="metric-value">{m["queries"]}</div><div class="metric-label">Queries</div></div>'
+            f'<div class="metric-card"><div class="metric-value">{m["docs_uploaded"]}</div><div class="metric-label">Docs</div></div>'
+            f'<div class="metric-card"><div class="metric-value">{m["total_tokens"]:,}</div><div class="metric-label">Tokens</div></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-        st.caption(f"🔤 LLM Input: {summary['llm_input_tokens']:,} tokens")
-        st.caption(f"🔤 LLM Output: {summary['llm_output_tokens']:,} tokens")
-        st.caption(f"🔤 Embed: {summary['embed_tokens']:,} tokens")
-        st.caption(f"💰 Est. Cost: ${summary['est_cost_usd']:.4f}")
+        st.caption(f"LLM: {m['llm_input_tokens']:,} in / {m['llm_output_tokens']:,} out")
+        st.caption(f"Embed: {m['embed_tokens']:,} tokens · {m['embed_calls']} calls")
+        st.caption(f"Est. cost: ${m['est_cost_usd']:.4f}")
 
         st.divider()
 
         # Actions
-        st.subheader("⚡ Actions")
+        st.markdown("### Actions")
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("Load Samples", use_container_width=True):
                 sample_dir = Path("data/samples")
@@ -248,11 +333,7 @@ def render_sidebar():
                     for f in sample_dir.iterdir():
                         if f.suffix.lower() in [".pdf", ".docx", ".xlsx", ".pptx", ".txt"]:
                             try:
-                                ingest_document(
-                                    str(f),
-                                    api_key=st.session_state.api_key,
-                                    metrics=st.session_state.metrics,
-                                )
+                                ingest_document(str(f), api_key=st.session_state.api_key, metrics=st.session_state.metrics)
                                 loaded += 1
                             except Exception:
                                 pass
@@ -260,9 +341,6 @@ def render_sidebar():
                         st.success(f"Loaded {loaded}")
                         st.session_state.documents_loaded = True
                         st.rerun()
-                    else:
-                        st.warning("No samples")
-
         with col2:
             if st.button("Reset DB", type="secondary", use_container_width=True):
                 try:
@@ -275,30 +353,33 @@ def render_sidebar():
                     st.error(str(e))
 
 
-def render_chat():
-    """Render the main chat interface."""
-    st.header("Knowledge Assistant")
-    st.write("Ask questions about your uploaded documents.")
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
 
-    # Intent badges
-    intent_icons = {
-        "retrieval": "🔍",
-        "summary": "📝",
-        "comparison": "⚖️",
-        "synthesis": "🔗",
-        "direct": "💡",
-        "clarify": "❓",
-    }
+INTENT_LABELS = {
+    "retrieval": ("Retrieval", "intent-retrieval"),
+    "summary": ("Summary", "intent-summary"),
+    "comparison": ("Comparison", "intent-comparison"),
+    "synthesis": ("Synthesis", "intent-synthesis"),
+    "direct": ("Direct", "intent-direct"),
+    "clarify": ("Clarify", "intent-clarify"),
+}
+
+
+def render_chat():
+    st.markdown('<div class="main-header">Knowledge Assistant</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Ask questions about your uploaded documents</div>', unsafe_allow_html=True)
 
     st.divider()
 
     # Empty state
     if not st.session_state.messages:
-        st.info(
-            "**Getting Started:** Upload documents in the sidebar, "
-            "then ask questions below.\n\n"
-            "**Try:** \"Summarize this document\", \"How does X relate to Y?\", "
-            "\"Compare sections A and B\""
+        st.markdown(
+            "**Upload a document** in the sidebar, then try:\n"
+            "- *\"Summarize this document\"*\n"
+            "- *\"How does X relate to Y?\"*\n"
+            "- *\"Compare sections A and B\"*"
         )
 
     # Chat history
@@ -309,24 +390,21 @@ def render_chat():
             if msg["role"] == "assistant":
                 intent_val = msg.get("intent", "")
                 if intent_val:
-                    icon = intent_icons.get(intent_val, "")
-                    st.caption(f"{icon} {intent_val.replace('_', ' ').title()}")
+                    label, css_class = INTENT_LABELS.get(intent_val, (intent_val, "intent-retrieval"))
+                    st.markdown(f'<span class="intent-badge {css_class}">{label}</span>', unsafe_allow_html=True)
 
                 if msg.get("citations"):
-                    with st.expander("View Sources"):
+                    with st.expander("Sources"):
                         for i, cit in enumerate(msg["citations"], 1):
-                            meta = []
+                            parts = [cit["source_file"]]
                             if cit.get("page_number"):
-                                meta.append(f"Page {cit['page_number']}")
+                                parts.append(f"p.{cit['page_number']}")
                             if cit.get("section"):
-                                meta.append(cit["section"])
-                            source_text = f"**{i}. {cit['source_file']}**"
-                            if meta:
-                                source_text += f" — {' · '.join(meta)}"
-                            st.write(source_text)
+                                parts.append(cit["section"])
+                            st.caption(f"{i}. {' · '.join(parts)}")
 
-    # Chat input
-    if prompt := st.chat_input("Type your question here..."):
+    # Chat input — streaming
+    if prompt := st.chat_input("Ask a question..."):
         touch_activity()
         st.session_state.messages.append({"role": "user", "content": prompt})
 
@@ -334,67 +412,68 @@ def render_chat():
             st.write(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    result = process_query(
-                        prompt,
-                        api_key=st.session_state.api_key,
-                        metrics=st.session_state.metrics,
-                        chat_history=st.session_state.messages,
-                    )
+            try:
+                stream_ctx, text_stream = process_query_stream(
+                    prompt,
+                    api_key=st.session_state.api_key,
+                    metrics=st.session_state.metrics,
+                    chat_history=st.session_state.messages,
+                )
 
-                    intent_val = result.intent.value
-                    icon = intent_icons.get(intent_val, "")
-                    st.caption(f"{icon} {intent_val.replace('_', ' ').title()}")
+                # Intent badge
+                intent_val = stream_ctx.intent.value
+                label, css_class = INTENT_LABELS.get(intent_val, (intent_val, "intent-retrieval"))
+                st.markdown(f'<span class="intent-badge {css_class}">{label}</span>', unsafe_allow_html=True)
 
-                    if result.sub_queries:
-                        st.caption(f"Analyzed as: {', '.join(result.sub_queries)}")
+                if stream_ctx.sub_queries:
+                    st.caption(f"Sub-queries: {', '.join(stream_ctx.sub_queries)}")
 
-                    st.write(result.response)
+                # Stream the response
+                full_text = st.write_stream(text_stream)
 
-                    st.session_state.messages.append(
+                # Save to history
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": full_text,
+                    "citations": [
                         {
-                            "role": "assistant",
-                            "content": result.response,
-                            "citations": [
-                                {
-                                    "source_file": c.source_file,
-                                    "page_number": c.page_number,
-                                    "section": c.section,
-                                    "excerpt": c.excerpt,
-                                }
-                                for c in result.citations
-                            ],
-                            "intent": intent_val,
+                            "source_file": c.source_file,
+                            "page_number": c.page_number,
+                            "section": c.section,
+                            "excerpt": c.excerpt,
                         }
-                    )
+                        for c in stream_ctx.citations
+                    ],
+                    "intent": intent_val,
+                })
 
-                except Exception as e:
-                    error_msg = str(e)
-                    if "api" in error_msg.lower() and "key" in error_msg.lower():
-                        display_error = (
-                            "API key error. Please check your key is valid and try again."
-                        )
-                    else:
-                        display_error = f"Error: {error_msg[:200]}"
+                # Show sources after streaming completes
+                if stream_ctx.citations:
+                    with st.expander("Sources"):
+                        for i, c in enumerate(stream_ctx.citations, 1):
+                            parts = [c.source_file]
+                            if c.page_number:
+                                parts.append(f"p.{c.page_number}")
+                            if c.section:
+                                parts.append(c.section)
+                            st.caption(f"{i}. {' · '.join(parts)}")
 
-                    st.error(display_error)
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": display_error,
-                            "citations": [],
-                        }
-                    )
+            except Exception as e:
+                error_msg = str(e)
+                if "api" in error_msg.lower() and "key" in error_msg.lower():
+                    display_error = "API key error. Please check your key."
+                else:
+                    display_error = f"Error: {error_msg[:200]}"
+                st.error(display_error)
+                st.session_state.messages.append({
+                    "role": "assistant", "content": display_error, "citations": [],
+                })
 
 
 def main():
     init_session_state()
-
-    # Check session timeout
     if check_session_timeout():
-        st.warning("⏰ Session timed out. Please re-enter your API key.")
-
+        st.warning("Session timed out. Please re-enter your API key.")
     if not st.session_state.authenticated:
         render_landing_page()
     else:
