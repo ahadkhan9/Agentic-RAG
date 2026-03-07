@@ -20,7 +20,7 @@ from config import config
 
 app = FastAPI(
     title="Agentic RAG API",
-    description="Manufacturing Document Q&A System",
+    description="Document Q&A System",
     version="2.0.0",
     docs_url="/docs" if os.getenv("ENABLE_DOCS", "false").lower() == "true" else None,
     redoc_url=None,

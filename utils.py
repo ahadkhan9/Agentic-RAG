@@ -2,6 +2,7 @@
 Shared Utilities
 
 Common functions used across agents — LLM client, retry logic, API key management.
+Supports optional SessionMetrics for token tracking.
 """
 import time
 import re
@@ -23,10 +24,7 @@ _API_KEY_PATTERN = re.compile(r"^AIza[A-Za-z0-9_-]{35}$")
 
 
 def validate_api_key(api_key: str) -> bool:
-    """Validate that a string looks like a Gemini API key.
-
-    Gemini API keys follow the pattern: AIza[35 alphanumeric/dash/underscore chars]
-    """
+    """Validate that a string looks like a Gemini API key."""
     if not api_key or not isinstance(api_key, str):
         return False
     return bool(_API_KEY_PATTERN.match(api_key.strip()))
@@ -45,14 +43,7 @@ def sanitize_api_key(api_key: str) -> str:
 # ---------------------------------------------------------------------------
 
 def get_gemini_client(api_key: Optional[str] = None) -> genai.Client:
-    """Create a Gemini client using the provided or default API key.
-
-    Priority:
-    1. Explicitly passed api_key (per-session, from user input)
-    2. Server-level config.google_api_key (from .env)
-
-    Raises ValueError if no key is available.
-    """
+    """Create a Gemini client using the provided or default API key."""
     key = api_key or config.google_api_key
     if not key:
         raise ValueError(
@@ -66,10 +57,7 @@ def get_gemini_client(api_key: Optional[str] = None) -> genai.Client:
 # ---------------------------------------------------------------------------
 
 def call_with_retry(func, max_retries: int = 3, base_delay: float = 1.0):
-    """Call a function with exponential backoff retry for transient API errors.
-
-    Retries on: 503 (overloaded), 429 (rate limit), temporary errors.
-    """
+    """Call a function with exponential backoff retry for transient API errors."""
     last_error = None
     for attempt in range(max_retries):
         try:
@@ -94,13 +82,17 @@ def call_with_retry(func, max_retries: int = 3, base_delay: float = 1.0):
 
 
 # ---------------------------------------------------------------------------
-# LLM Call Helper
+# LLM Call Helper — returns text + records metrics
 # ---------------------------------------------------------------------------
 
-def call_gemini(prompt: str, api_key: Optional[str] = None) -> str:
+def call_gemini(
+    prompt: str,
+    api_key: Optional[str] = None,
+    metrics=None,
+) -> str:
     """Send a prompt to Gemini and return the response text.
 
-    Handles client creation, retry, and error extraction in one place.
+    If metrics (SessionMetrics) is provided, records token usage.
     """
     client = get_gemini_client(api_key)
 
@@ -111,4 +103,8 @@ def call_gemini(prompt: str, api_key: Optional[str] = None) -> str:
         )
 
     response = call_with_retry(make_call)
+
+    if metrics is not None:
+        metrics.record_llm_call(response, input_chars=len(prompt))
+
     return response.text

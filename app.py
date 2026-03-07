@@ -3,26 +3,29 @@ Streamlit UI — Knowledge Assistant
 
 Features:
 - Landing page with Gemini API key input
-- Document upload and ingestion
-- Chat-based Q&A with citations
+- Document upload with summary generation
+- Chat-based Q&A with 6 intent types
+- Session timeout and metrics tracking
 - Per-session API key (never stored server-side)
 """
+import time
 import streamlit as st
 from pathlib import Path
 import sys
-import os
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from agents.orchestrator import process_query, ingest_document
 from vectordb.milvus_client import get_milvus_client, reset_milvus_client
+from vectordb.doc_registry import list_documents as list_registered_docs, clear_registry
+from metrics import SessionMetrics
 from utils import validate_api_key
 from config import config
 
 # Page config
 st.set_page_config(
     page_title="Knowledge Assistant",
-    page_icon="⚙️",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -37,6 +40,31 @@ def init_session_state():
         st.session_state.api_key = ""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "metrics" not in st.session_state:
+        st.session_state.metrics = SessionMetrics()
+    if "session_start" not in st.session_state:
+        st.session_state.session_start = time.time()
+    if "last_activity" not in st.session_state:
+        st.session_state.last_activity = time.time()
+
+
+def check_session_timeout():
+    """Check if session has timed out. Returns True if expired."""
+    if not st.session_state.authenticated:
+        return False
+    elapsed_minutes = (time.time() - st.session_state.last_activity) / 60
+    if elapsed_minutes > config.session_timeout_minutes:
+        st.session_state.authenticated = False
+        st.session_state.api_key = ""
+        st.session_state.messages = []
+        st.session_state.metrics = SessionMetrics()
+        return True
+    return False
+
+
+def touch_activity():
+    """Update last activity timestamp."""
+    st.session_state.last_activity = time.time()
 
 
 def render_landing_page():
@@ -44,23 +72,6 @@ def render_landing_page():
     st.markdown(
         """
         <style>
-        .landing-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 4rem 1rem;
-        }
-        .landing-title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        .landing-subtitle {
-            font-size: 1.1rem;
-            color: #888;
-            margin-bottom: 2rem;
-        }
         .security-note {
             font-size: 0.85rem;
             color: #6c757d;
@@ -75,7 +86,7 @@ def render_landing_page():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        st.markdown("## ⚙️ Knowledge Assistant")
+        st.markdown("## 🧠 Knowledge Assistant")
         st.markdown("*Document Q&A powered by Gemini*")
 
         st.divider()
@@ -105,6 +116,9 @@ def render_landing_page():
             else:
                 st.session_state.api_key = api_key_input
                 st.session_state.authenticated = True
+                st.session_state.session_start = time.time()
+                st.session_state.last_activity = time.time()
+                st.session_state.metrics = SessionMetrics()
                 st.rerun()
 
         st.divider()
@@ -128,35 +142,38 @@ def render_landing_page():
                 3. Click **Create API key**
                 4. Copy the key and paste it above
                 
-                The free tier includes generous usage limits for testing.
+                The free tier includes generous usage limits.
                 """
             )
 
 
 def render_sidebar():
-    """Render the sidebar with document management."""
+    """Render the sidebar with documents, metrics, and actions."""
     with st.sidebar:
-        st.header("⚙️ Knowledge Assistant")
+        st.header("🧠 Knowledge Assistant")
         st.caption("Document AI")
 
-        # Logout button
+        # Session info
+        session_minutes = int((time.time() - st.session_state.session_start) / 60)
+        st.caption(f"⏱️ Session: {session_minutes}m")
+
         if st.button("🔑 Change API Key", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.api_key = ""
             st.session_state.messages = []
+            st.session_state.metrics = SessionMetrics()
             st.rerun()
 
         st.divider()
 
         # Upload
-        st.subheader("Upload Documents")
+        st.subheader("📄 Upload Documents")
         uploaded_file = st.file_uploader(
             "Choose a file",
             type=["pdf", "docx", "xlsx", "pptx", "txt"],
         )
 
         if uploaded_file:
-            # Check file size
             file_size_mb = uploaded_file.size / (1024 * 1024)
             if file_size_mb > config.max_upload_size_mb:
                 st.error(
@@ -164,39 +181,63 @@ def render_sidebar():
                     f"Max: {config.max_upload_size_mb} MB"
                 )
             else:
-                with st.spinner("Processing..."):
+                with st.spinner("Processing & generating summary..."):
                     temp_path = Path("data/uploads") / uploaded_file.name
                     temp_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(temp_path, "wb") as f:
                         f.write(uploaded_file.getvalue())
                     try:
                         stats = ingest_document(
-                            str(temp_path), api_key=st.session_state.api_key
+                            str(temp_path),
+                            api_key=st.session_state.api_key,
+                            metrics=st.session_state.metrics,
                         )
-                        st.success(f"Indexed {stats['chunks_inserted']} chunks")
+                        st.success(f"✅ Indexed {stats['chunks_inserted']} chunks")
+                        if stats.get("summary"):
+                            st.info(f"📝 **Summary:** {stats['summary'][:200]}...")
                         st.session_state.documents_loaded = True
+                        touch_activity()
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
 
         st.divider()
 
-        # Database status
-        st.subheader("Database Status")
-        try:
-            client = get_milvus_client(api_key=st.session_state.api_key)
-            stats = client.get_collection_stats()
-            if stats.get("exists"):
-                count = stats.get("num_entities", 0)
-                st.metric(label="Chunks Indexed", value=f"{count:,}")
-            else:
-                st.info("No documents indexed yet")
-        except Exception:
-            st.warning("Database unavailable")
+        # Registered documents
+        st.subheader("📚 Documents")
+        docs = list_registered_docs()
+        if docs:
+            for doc in docs:
+                with st.expander(f"📄 {doc.filename}"):
+                    st.write(f"**Summary:** {doc.summary}")
+                    st.caption(f"Topics: {doc.topics}")
+                    st.caption(f"Chunks: {doc.chunk_count} | Chars: {doc.total_chars:,}")
+        else:
+            st.info("No documents uploaded yet")
+
+        st.divider()
+
+        # Metrics panel
+        st.subheader("📊 Session Metrics")
+        m = st.session_state.metrics
+        summary = m.get_summary()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Queries", summary["queries"])
+            st.metric("LLM Calls", summary["llm_calls"])
+        with col2:
+            st.metric("Docs", summary["docs_uploaded"])
+            st.metric("Embed Calls", summary["embed_calls"])
+
+        st.caption(f"🔤 LLM Input: {summary['llm_input_tokens']:,} tokens")
+        st.caption(f"🔤 LLM Output: {summary['llm_output_tokens']:,} tokens")
+        st.caption(f"🔤 Embed: {summary['embed_tokens']:,} tokens")
+        st.caption(f"💰 Est. Cost: ${summary['est_cost_usd']:.4f}")
 
         st.divider()
 
         # Actions
-        st.subheader("Quick Actions")
+        st.subheader("⚡ Actions")
         col1, col2 = st.columns(2)
 
         with col1:
@@ -205,12 +246,12 @@ def render_sidebar():
                 if sample_dir.exists():
                     loaded = 0
                     for f in sample_dir.iterdir():
-                        if f.suffix.lower() in [
-                            ".pdf", ".docx", ".xlsx", ".pptx", ".txt",
-                        ]:
+                        if f.suffix.lower() in [".pdf", ".docx", ".xlsx", ".pptx", ".txt"]:
                             try:
                                 ingest_document(
-                                    str(f), api_key=st.session_state.api_key
+                                    str(f),
+                                    api_key=st.session_state.api_key,
+                                    metrics=st.session_state.metrics,
                                 )
                                 loaded += 1
                             except Exception:
@@ -226,6 +267,7 @@ def render_sidebar():
             if st.button("Reset DB", type="secondary", use_container_width=True):
                 try:
                     reset_milvus_client()
+                    clear_registry()
                     st.session_state.messages = []
                     st.session_state.documents_loaded = False
                     st.rerun()
@@ -238,13 +280,25 @@ def render_chat():
     st.header("Knowledge Assistant")
     st.write("Ask questions about your uploaded documents.")
 
+    # Intent badges
+    intent_icons = {
+        "retrieval": "🔍",
+        "summary": "📝",
+        "comparison": "⚖️",
+        "synthesis": "🔗",
+        "direct": "💡",
+        "clarify": "❓",
+    }
+
     st.divider()
 
     # Empty state
     if not st.session_state.messages:
         st.info(
             "**Getting Started:** Upload documents in the sidebar, "
-            "then ask questions below."
+            "then ask questions below.\n\n"
+            "**Try:** \"Summarize this document\", \"How does X relate to Y?\", "
+            "\"Compare sections A and B\""
         )
 
     # Chat history
@@ -252,22 +306,28 @@ def render_chat():
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
 
-            if msg["role"] == "assistant" and msg.get("citations"):
-                with st.expander("View Sources"):
-                    for i, cit in enumerate(msg["citations"], 1):
-                        meta = []
-                        if cit.get("page_number"):
-                            meta.append(f"Page {cit['page_number']}")
-                        if cit.get("section"):
-                            meta.append(cit["section"])
+            if msg["role"] == "assistant":
+                intent_val = msg.get("intent", "")
+                if intent_val:
+                    icon = intent_icons.get(intent_val, "")
+                    st.caption(f"{icon} {intent_val.replace('_', ' ').title()}")
 
-                        source_text = f"**{i}. {cit['source_file']}**"
-                        if meta:
-                            source_text += f" — {' · '.join(meta)}"
-                        st.write(source_text)
+                if msg.get("citations"):
+                    with st.expander("View Sources"):
+                        for i, cit in enumerate(msg["citations"], 1):
+                            meta = []
+                            if cit.get("page_number"):
+                                meta.append(f"Page {cit['page_number']}")
+                            if cit.get("section"):
+                                meta.append(cit["section"])
+                            source_text = f"**{i}. {cit['source_file']}**"
+                            if meta:
+                                source_text += f" — {' · '.join(meta)}"
+                            st.write(source_text)
 
     # Chat input
     if prompt := st.chat_input("Type your question here..."):
+        touch_activity()
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         with st.chat_message("user"):
@@ -277,23 +337,21 @@ def render_chat():
             with st.spinner("Thinking..."):
                 try:
                     result = process_query(
-                        prompt, api_key=st.session_state.api_key
+                        prompt,
+                        api_key=st.session_state.api_key,
+                        metrics=st.session_state.metrics,
+                        chat_history=st.session_state.messages,
                     )
 
-                    # Intent badge
-                    intent = result.intent.value.replace("_", " ").title()
-                    st.caption(f"Query type: {intent}")
+                    intent_val = result.intent.value
+                    icon = intent_icons.get(intent_val, "")
+                    st.caption(f"{icon} {intent_val.replace('_', ' ').title()}")
 
-                    # Sub-queries
                     if result.sub_queries:
-                        st.caption(
-                            f"Analyzed as: {', '.join(result.sub_queries)}"
-                        )
+                        st.caption(f"Analyzed as: {', '.join(result.sub_queries)}")
 
-                    # Response
                     st.write(result.response)
 
-                    # Save
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
@@ -307,23 +365,20 @@ def render_chat():
                                 }
                                 for c in result.citations
                             ],
-                            "intent": result.intent.value,
+                            "intent": intent_val,
                         }
                     )
 
                 except Exception as e:
                     error_msg = str(e)
-                    # Don't leak API key details in error messages
                     if "api" in error_msg.lower() and "key" in error_msg.lower():
                         display_error = (
-                            "API key error. Please check your key is valid "
-                            "and try again."
+                            "API key error. Please check your key is valid and try again."
                         )
                     else:
-                        display_error = "Could not process your question."
+                        display_error = f"Error: {error_msg[:200]}"
 
                     st.error(display_error)
-                    st.caption(f"Error: {error_msg[:200]}")
                     st.session_state.messages.append(
                         {
                             "role": "assistant",
@@ -336,7 +391,10 @@ def render_chat():
 def main():
     init_session_state()
 
-    # Show landing page or main app
+    # Check session timeout
+    if check_session_timeout():
+        st.warning("⏰ Session timed out. Please re-enter your API key.")
+
     if not st.session_state.authenticated:
         render_landing_page()
     else:
