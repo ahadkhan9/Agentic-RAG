@@ -23,7 +23,7 @@ class Config:
 
     # Gemini Embeddings
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
-    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "768"))
+    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "3072"))
 
     # Chunking
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "512"))
