@@ -3,7 +3,7 @@ Milvus Vector Database Client
 
 Handles connection, collection management, and hybrid search operations.
 Uses Milvus Lite for local deployment (no Docker required).
-Embeddings via Gemini API (text-embedding-004) — no local PyTorch needed.
+Embeddings via Gemini API (gemini-embedding-001) — no local PyTorch needed.
 """
 from typing import Optional
 

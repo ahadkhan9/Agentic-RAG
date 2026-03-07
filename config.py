@@ -19,10 +19,10 @@ class Config:
     collection_name: str = os.getenv("COLLECTION_NAME", "manufacturing_docs")
 
     # Gemini LLM
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 
     # Gemini Embeddings
-    embedding_model: str = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
     embedding_dim: int = int(os.getenv("EMBEDDING_DIM", "768"))
 
     # Chunking
