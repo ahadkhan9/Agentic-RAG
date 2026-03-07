@@ -76,7 +76,7 @@ def render_landing_page():
 
     with col2:
         st.markdown("## ⚙️ Knowledge Assistant")
-        st.markdown("*Manufacturing Document Q&A powered by Gemini*")
+        st.markdown("*Document Q&A powered by Gemini*")
 
         st.divider()
 
@@ -137,7 +137,7 @@ def render_sidebar():
     """Render the sidebar with document management."""
     with st.sidebar:
         st.header("⚙️ Knowledge Assistant")
-        st.caption("Manufacturing AI")
+        st.caption("Document AI")
 
         # Logout button
         if st.button("🔑 Change API Key", use_container_width=True):
@@ -235,8 +235,8 @@ def render_sidebar():
 
 def render_chat():
     """Render the main chat interface."""
-    st.header("Manufacturing Knowledge Assistant")
-    st.write("Ask questions about your manufacturing documents.")
+    st.header("Knowledge Assistant")
+    st.write("Ask questions about your uploaded documents.")
 
     st.divider()
 

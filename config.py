@@ -16,7 +16,7 @@ class Config:
     """Application configuration — Gemini-only deployment."""
 
     # Milvus Lite (file-based, no server needed)
-    collection_name: str = os.getenv("COLLECTION_NAME", "manufacturing_docs")
+    collection_name: str = os.getenv("COLLECTION_NAME", "documents")
 
     # Gemini LLM
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")

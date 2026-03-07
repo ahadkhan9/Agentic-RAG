@@ -41,16 +41,16 @@ def classify_intent(query: str, api_key: Optional[str] = None) -> RoutingResult:
     - If query should be decomposed
     - How to route the query
     """
-    prompt = f"""Analyze this user query for a MANUFACTURING document Q&A system.
+    prompt = f"""Analyze this user query for a document Q&A system.
 
 Query: "{query}"
 
-IMPORTANT: This is a RAG system with uploaded manufacturing documents. Most queries should use "retrieval" to search documents.
+IMPORTANT: This is a RAG system with user-uploaded documents. Most queries should use "retrieval" to search documents.
 
 Classification rules:
-1. "retrieval" - Use for ANY question about equipment, procedures, specifications, safety, maintenance, SOPs, or manufacturing-related topics. THIS IS THE DEFAULT.
-2. "direct" - ONLY for greetings, meta-questions about the system, or completely general knowledge unrelated to manufacturing.
-3. "multi_part" - Complex questions with 2+ distinct sub-questions that need separate searches.
+1. "retrieval" - Use for ANY question that could be answered from uploaded documents. THIS IS THE DEFAULT.
+2. "direct" - ONLY for greetings, meta-questions about the system itself, or trivial general knowledge clearly unrelated to any uploaded documents.
+3. "multi_part" - Complex questions with 2+ distinct sub-questions that need separate document searches.
 4. "clarify" - Query is too vague or unclear to process.
 
 Respond in this exact JSON format:

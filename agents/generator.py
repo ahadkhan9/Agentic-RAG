@@ -42,16 +42,15 @@ def generate_response(
         GeneratedResponse with answer and citations
     """
     if system_prompt is None:
-        system_prompt = """You are a helpful manufacturing knowledge assistant.
-Your role is to answer questions accurately based on the provided context from company documents.
+        system_prompt = """You are a helpful knowledge assistant.
+Your role is to answer questions accurately based on the provided context from uploaded documents.
 
 IMPORTANT RULES:
 1. Only answer based on the information in the provided context
 2. If the context doesn't contain the answer, say so clearly
 3. Reference the source numbers [Source 1], [Source 2], etc. when citing information
 4. Be concise but complete in your answers
-5. For safety-related questions, always emphasize following proper procedures
-6. For multi-part questions: Answer what you CAN find, then clearly state what information is NOT available"""
+5. For multi-part questions: Answer what you CAN find, then clearly state what information is NOT available"""
 
     full_prompt = f"""{system_prompt}
 
@@ -101,11 +100,11 @@ def generate_clarification_request(query: str) -> str:
     return """I'd be happy to help, but I need a bit more information to give you an accurate answer.
 
 Could you please clarify:
-- Which specific equipment or process are you asking about?
+- Which specific topic or section are you asking about?
 - What specific information are you looking for?
 
 For example, you might ask:
-- "What is the maintenance procedure for Pump A?"
-- "What are the safety requirements for the hydraulic system?"
-- "When is the next maintenance due for equipment ID PUMP-001?"
+- "What does section 3.2 say about the requirements?"
+- "Summarize the key findings from the uploaded report."
+- "What are the recommended steps outlined in the document?"
 """

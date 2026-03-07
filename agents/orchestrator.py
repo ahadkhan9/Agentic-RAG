@@ -90,26 +90,6 @@ def process_query(
         logger.info(f"🔍 Single query retrieval (top_k={top_k})...")
         retrieval_results = retrieve_documents(query, top_k=top_k, api_key=api_key)
 
-    # AGENTIC BEHAVIOR: Check if results are mostly templates
-    if retrieval_results:
-        template_count = sum(
-            1 for r in retrieval_results if "template" in r.source_file.lower()
-        )
-        if template_count >= len(retrieval_results) * 0.5:
-            logger.info("🔄 Agentic refinement: mostly templates, refining search...")
-            refined_query = f"{query} in database specifications inventory"
-            refined_results = retrieve_documents(
-                refined_query, top_k=top_k, api_key=api_key
-            )
-
-            seen = set(r.content[:100] for r in retrieval_results)
-            for r in refined_results:
-                if r.content[:100] not in seen:
-                    retrieval_results.append(r)
-                    seen.add(r.content[:100])
-
-            retrieval_results.sort(key=lambda x: x.score, reverse=True)
-            logger.info(f"📚 After refinement: {len(retrieval_results)} documents")
 
     logger.info(f"📚 Retrieved {len(retrieval_results)} documents")
 

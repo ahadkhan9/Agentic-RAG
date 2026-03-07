@@ -77,12 +77,6 @@ def retrieve_documents(
     logger.info(f"📚 Found {len(retrieval_results)} documents")
     for i, r in enumerate(retrieval_results[:3], 1):
         logger.debug(f"  [{i}] {r.source_file} (score: {r.score:.3f})")
-
-    # Simple re-ranking: penalize template files
-    for result in retrieval_results:
-        if "template" in result.source_file.lower():
-            result.score *= 0.7
-
     retrieval_results.sort(key=lambda x: x.score, reverse=True)
 
     return retrieval_results
