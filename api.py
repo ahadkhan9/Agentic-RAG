@@ -2,16 +2,18 @@
 FastAPI Backend
 
 REST API for document ingestion, querying, and SSE streaming.
+Uses native FastAPI SSE (0.135+) with EventSourceResponse and ServerSentEvent.
 Accepts per-request Gemini API key via X-API-Key header.
 """
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from agents.orchestrator import process_query, process_query_stream, ingest_document
@@ -96,6 +98,10 @@ async def root():
     return {"status": "healthy", "service": "Agentic RAG API", "version": "3.0.0"}
 
 
+# --------------------------------------------------------------------------
+# Query — blocking
+# --------------------------------------------------------------------------
+
 @app.post("/query", response_model=QueryResponse)
 async def query_documents(request: QueryRequest, api_key: str = Depends(get_api_key)):
     try:
@@ -117,24 +123,26 @@ async def query_documents(request: QueryRequest, api_key: str = Depends(get_api_
 
 
 # --------------------------------------------------------------------------
-# SSE Streaming via StreamingResponse
+# Query — SSE streaming (native FastAPI 0.135+)
 # --------------------------------------------------------------------------
 
-@app.post("/query/stream")
-def query_stream(request: QueryRequest, api_key: str = Depends(get_api_key)):
-    """Stream query response via SSE.
+@app.post("/query/stream", response_class=EventSourceResponse)
+def query_stream(
+    request: QueryRequest, api_key: str = Depends(get_api_key)
+) -> Iterable[ServerSentEvent]:
+    """Stream query response via native FastAPI SSE.
 
     Events:
     - event: meta   — JSON with intent, citations, sub_queries
-    - event: token  — text chunk
-    - event: done   — end of stream
+    - event: token  — streamed text chunk (raw_data, no JSON encoding)
+    - event: done   — signals completion
     """
     stream_ctx, text_stream = process_query_stream(
         request.query, top_k=request.top_k, api_key=api_key,
     )
 
-    def sse_generator():
-        # Meta event
+    def event_generator():
+        # 1. Send metadata first
         meta = {
             "intent": stream_ctx.intent.value,
             "sub_queries": stream_ctx.sub_queries or [],
@@ -144,26 +152,16 @@ def query_stream(request: QueryRequest, api_key: str = Depends(get_api_key)):
                 for c in stream_ctx.citations
             ],
         }
-        yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
+        yield ServerSentEvent(data=json.dumps(meta), event="meta")
 
-        # Token events
+        # 2. Stream text tokens
         for chunk in text_stream:
-            # Escape newlines in SSE data
-            escaped = chunk.replace("\n", "\ndata: ")
-            yield f"event: token\ndata: {escaped}\n\n"
+            yield ServerSentEvent(raw_data=chunk, event="token")
 
-        # Done event
-        yield "event: done\ndata: [DONE]\n\n"
+        # 3. Signal completion
+        yield ServerSentEvent(raw_data="[DONE]", event="done")
 
-    return StreamingResponse(
-        sse_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return EventSourceResponse(event_generator())
 
 
 # --------------------------------------------------------------------------
